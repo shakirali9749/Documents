@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
+from .utils.image_utils import handle_base64_profile_image
 
 class SignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -9,6 +10,7 @@ class SignupSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            'id',
             'username',
             'first_name',
             'last_name',
@@ -32,7 +34,7 @@ class SignupSerializer(serializers.ModelSerializer):
         )
         return user
 
-class SigninSerializers(serializers.ModelSerializer):
+class SigninSerializer(serializers.ModelSerializer):
     email = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
     access = serializers.CharField(read_only=True)
@@ -48,7 +50,7 @@ class SigninSerializers(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
-        eamil = data.get('email'),
+        email = data.get('email')
         password = data.get('password')
         user = authenticate(email=email,password=password)
         if not user:
@@ -57,10 +59,14 @@ class SigninSerializers(serializers.ModelSerializer):
         refresh = RefreshToken.for_user(user)
         data['access'] = str(refresh.access_token)
         data['refresh'] = str(refresh)
+        print(f"Data: {data}")
         return data
 
 
-class UserSerializers(serializers.ModelSerializer):
+class UserProfileSerializer(serializers.ModelSerializer):
+    profile_image = serializers.CharField(write_only=True, required=False)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -72,5 +78,28 @@ class UserSerializers(serializers.ModelSerializer):
             'profile_image',
             'email',
             'role',
+            'profile_image_url'
         ]
         read_only_fields = ['id','role','email']
+
+    def get_profile_image_url(self, obj):
+        request = self.context.get("request")
+        if obj.profile_image:
+            return request.build_absolute_uri(obj.profile_image.url)
+
+        return None
+
+    def update(self, instance, validated_data):
+        base64_image = validated_data.pop("profile_image", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if base64_image:
+            handle_base64_profile_image(instance, base64_image)
+
+        instance.save()
+
+        return instance
+
+
+
